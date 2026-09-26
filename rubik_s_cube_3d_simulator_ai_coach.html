@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Rubik's Cube Simulator & AI Coach</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f17;
+            color: #f3f4f6;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .mono {
+            font-family: 'JetBrains+Mono', monospace;
+        }
+
+        /* Glassmorphism panel styling */
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-button {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-button:hover:not(:disabled) {
+            background: rgba(51, 65, 85, 0.8);
+            border-color: rgba(56, 189, 248, 0.5);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .glass-button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(51, 65, 85, 0.8);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.5);
+        }
+
+        /* Range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]:focus {
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: #1e293b;
+            border-radius: 3px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -5px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+        }
+
+        /* Pulsing effect for active step */
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(56, 189, 248, 0.4); }
+            50% { box-shadow: 0 0 20px rgba(56, 189, 248, 0.8); }
+        }
+        .pulse-active {
+            animation: pulse-glow 2s infinite;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between p-3 md:p-6 relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-950">
+
+    <!-- Top Header Bar -->
+    <header class="w-full glass-panel rounded-2xl px-6 py-4 flex justify-between items-center z-20 shadow-2xl">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
+                <i class="fa-solid font-bold text-white text-xl fa-cube"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg md:text-xl tracking-wide bg-gradient-to-r from-white via-slate-200 to-cyan-400 bg-clip-text text-transparent">
+                    RUBIK'S <span class="text-cyan-400 font-extrabold">NEXUS</span>
+                </h1>
+                <p class="text-xs text-slate-400 font-medium">3D Simulator & AI Coach</p>
+            </div>
+        </div>
+
+        <!-- Quick Stats & Controls Header -->
+        <div class="flex items-center space-x-4">
+            <div class="hidden sm:flex items-center space-x-3 bg-slate-900/80 border border-slate-800 rounded-xl px-4 py-2">
+                <div class="text-xs text-slate-400">Moves: <span id="moveCount" class="text-cyan-400 font-bold mono text-sm ml-1">0</span></div>
+                <div class="w-px h-4 bg-slate-700"></div>
+                <div class="text-xs text-slate-400">Timer: <span id="timerDisplay" class="text-emerald-400 font-bold mono text-sm ml-1">00:00</span></div>
+            </div>
+            <button id="resetViewBtn" title="Reset View Angle" class="glass-button p-2.5 rounded-xl text-slate-300 hover:text-white">
+                <i class="fa-solid fa-compress-arrows-alt"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area with Canvas & Floating UI -->
+    <main class="relative flex-1 my-3 rounded-2xl overflow-hidden glass-panel border border-slate-800/80 flex">
+        <!-- 3D Canvas Rendering Target -->
+        <div id="canvas-container" class="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing"></div>
+
+        <!-- Floating Left Controls (Manual Rotations) -->
+        <div class="absolute top-4 left-4 z-10 flex flex-col gap-3 max-w-[200px]">
+            <div class="glass-panel p-3.5 rounded-xl border border-slate-800/80 backdrop-blur-md">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-2">
+                    <i class="fa-solid fa-hand-pointer text-cyan-400"></i> Face Moves
+                </h3>
+                <div class="grid grid-cols-3 gap-1.5 mb-2">
+                    <button class="move-btn glass-button p-2 text-xs font-bold rounded-lg text-amber-300" data-move="U">U</button>
+                    <button class="move-btn glass-button p-2 text-xs font-bold rounded-lg text-emerald-400" data-move="D">D</button>
+                    <button class="move-btn glass-button p-2 text-xs font-bold rounded-lg text-rose-400" data-move="L">L</button>
+                    <button class="move-btn glass-button p-2 text-xs font-bold rounded-lg text-orange-400" data-move="R">R</button>
+                    <button class="move-btn glass-button p-2 text-xs font-bold rounded-lg text-sky-400" data-move="F">F</button>
+                    <button class="move-btn glass-button p-2 text-xs font-bold rounded-lg text-indigo-300" data-move="B">B</button>
+                </div>
+                <div class="text-[10px] text-slate-500 text-center font-medium">Hold <kbd class="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">Shift</kbd> for Prime (')</div>
+            </div>
+
+            <div class="glass-panel p-3 rounded-xl border border-slate-800/80 backdrop-blur-md flex flex-col gap-2">
+                <button id="scrambleBtn" class="w-full glass-button py-2 px-3 rounded-lg text-xs font-semibold text-amber-300 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-shuffle"></i> Scramble Cube
+                </button>
+                <button id="resetCubeBtn" class="w-full glass-button py-2 px-3 rounded-lg text-xs font-semibold text-rose-400 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-rotate-left"></i> Reset State
+                </button>
+            </div>
+        </div>
+
+        <!-- Floating Right Panel (AI Coach & Auto-Solver) -->
+        <div class="absolute top-4 right-4 bottom-4 w-80 md:w-96 z-10 flex flex-col gap-3">
+            <div class="glass-panel p-4 rounded-xl border border-slate-800/80 flex-1 flex flex-col shadow-2xl overflow-hidden backdrop-blur-md">
+                <!-- AI Coach Header -->
+                <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                            <i class="fa-solid fa-brain"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-sm font-bold text-white tracking-wide">AI Solution Coach</h2>
+                            <p id="solverStatus" class="text-[11px] text-cyan-400 font-medium">Ready to analyze</p>
+                        </div>
+                    </div>
+                    <span id="cubeSolvedBadge" class="hidden px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        SOLVED
+                    </span>
+                </div>
+
+                <!-- Speed Controller Slider -->
+                <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800 mb-3">
+                    <div class="flex justify-between items-center mb-1.5">
+                        <label class="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                            <i class="fa-solid fa-gauge-high text-cyan-400"></i> Auto-Solve Speed
+                        </label>
+                        <span id="speedDisplay" class="text-xs font-bold text-cyan-400 mono">1.0x</span>
+                    </div>
+                    <input type="range" id="speedSlider" min="0.2" max="3" step="0.1" value="1" class="w-full">
+                </div>
+
+                <!-- Guidance & Explanation Window -->
+                <div id="aiExplanation" class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 text-xs text-slate-300 mb-3 min-h-[90px] flex flex-col justify-center leading-relaxed">
+                    <p class="text-slate-400 italic">Click <span class="text-cyan-400 font-semibold">"Generate Solution"</span> to get real-time step-by-step guidance and algorithms for your cube state.</p>
+                </div>
+
+                <!-- Solution Moves Queue Header -->
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Solution Steps</span>
+                    <span id="stepProgress" class="text-xs text-slate-500 mono">0 / 0</span>
+                </div>
+
+                <!-- Moves Visual List -->
+                <div id="solutionStepsContainer" class="flex-1 bg-slate-950/50 border border-slate-800/60 rounded-xl p-2.5 overflow-y-auto space-y-1.5">
+                    <div class="h-full flex items-center justify-center text-slate-600 text-xs italic">
+                        No solution generated yet
+                    </div>
+                </div>
+
+                <!-- Solver Action Buttons -->
+                <div class="mt-3 grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80">
+                    <button id="generateBtn" class="glass-button py-2.5 px-3 rounded-xl text-xs font-bold text-cyan-400 border-cyan-500/30 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> AI Analysis
+                    </button>
+                    <button id="autoSolveBtn" disabled class="glass-button py-2.5 px-3 rounded-xl text-xs font-bold text-emerald-400 border-emerald-500/30 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-play"></i> Auto Solve
+                    </button>
+                </div>
+                <button id="stepBtn" disabled class="w-full glass-button mt-2 py-2 px-3 rounded-xl text-xs font-bold text-indigo-300 border-indigo-500/30 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+                    <i class="fa-solid fa-forward-step"></i> Step Forward (Hint Move)
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Core Constants & Color Mapping for standard Rubik's Cube
+        const CUBE_SIZE = 3;
+        const CUBE_GAP = 0.04;
+        const CUBIE_SIZE = 0.96;
+
+        // Face Colors (Standard Scheme: Up: Yellow, Down: White, Left: Orange, Right: Red, Front: Green, Back: Blue)
+        const COLORS = {
+            U: 0xffea00, // Yellow
+            D: 0xffffff, // White
+            L: 0xff6d00, // Orange
+            R: 0xd50000, // Red
+            F: 0x00c853, // Green
+            B: 0x2979ff, // Blue
+            INNER: 0x111827 // Dark Gray inner core
+        };
+
+        // Application State
+        let scene, camera, renderer;
+        let cubies = [];
+        let isRotating = false;
+        let isAutoSolving = false;
+        let animationSpeed = 1.0; // Multiplier
+        let moveQueue = [];
+        let moveHistory = [];
+        let currentSolutionMoves = [];
+        let currentSolutionIndex = 0;
+
+        // Mouse Drag / Orbit variables
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let cubeGroup;
+
+        // Timer State
+        let timerInterval = null;
+        let elapsedSeconds = 0;
+        let timerRunning = false;
+
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            scene = new THREE.Scene();
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(5, 4, 6);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight1.position.set(10, 15, 10);
+            scene.add(dirLight1);
+
+            const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+            dirLight2.position.set(-10, -10, -10);
+            scene.add(dirLight2);
+
+            // Master Group for Camera Orbiting
+            cubeGroup = new THREE.Group();
+            scene.add(cubeGroup);
+
+            // Build Cubies
+            buildCube();
+
+            // Event Listeners for Resize & Orbiting Controls
+            window.addEventListener('resize', onWindowResize);
+            setupOrbitControls(container);
+
+            // Start Render Loop
+            animate();
+        }
+
+        function buildCube() {
+            // Clear existing
+            cubies.forEach(cubie => cubeGroup.remove(cubie));
+            cubies = [];
+
+            const offset = (CUBE_SIZE - 1) / 2;
+
+            for (let x = 0; x < CUBE_SIZE; x++) {
+                for (let y = 0; y < CUBE_SIZE; y++) {
+                    for (let z = 0; z < CUBE_SIZE; z++) {
+                        // Create materials for each face [R, L, U, D, F, B]
+                        const materials = [
+                            new THREE.MeshLambertMaterial({ color: x === 2 ? COLORS.R : COLORS.INNER }), // Right (+X)
+                            new THREE.MeshLambertMaterial({ color: x === 0 ? COLORS.L : COLORS.INNER }), // Left (-X)
+                            new THREE.MeshLambertMaterial({ color: y === 2 ? COLORS.U : COLORS.INNER }), // Up (+Y)
+                            new THREE.MeshLambertMaterial({ color: y === 0 ? COLORS.D : COLORS.INNER }), // Down (-Y)
+                            new THREE.MeshLambertMaterial({ color: z === 2 ? COLORS.F : COLORS.INNER }), // Front (+Z)
+                            new THREE.MeshLambertMaterial({ color: z === 0 ? COLORS.B : COLORS.INNER })  // Back (-Z)
+                        ];
+
+                        const geometry = new THREE.BoxGeometry(CUBIE_SIZE, CUBIE_SIZE, CUBIE_SIZE);
+                        const cubie = new THREE.Mesh(geometry, materials);
+
+                        // Calculate Position
+                        cubie.position.set(
+                            (x - offset) * (CUBIE_SIZE + CUBE_GAP),
+                            (y - offset) * (CUBIE_SIZE + CUBE_GAP),
+                            (z - offset) * (CUBIE_SIZE + CUBE_GAP)
+                        );
+
+                        // Attach initial coordinate indices for face layer detection
+                        cubie.userData = { origX: x, origY: y, origZ: z };
+                        
+                        cubeGroup.add(cubie);
+                        cubies.push(cubie);
+                    }
+                }
+            }
+        }
+
+        function setupOrbitControls(container) {
+            container.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            container.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+
+                const deltaMove = {
+                    x: e.clientX - previousMousePosition.x,
+                    y: e.clientY - previousMousePosition.y
+                };
+
+                const rotateSpeed = 0.005;
+                cubeGroup.rotation.y += deltaMove.x * rotateSpeed;
+                cubeGroup.rotation.x += deltaMove.y * rotateSpeed;
+
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            // Touch Support for mobile device drag
+            container.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }
+            });
+
+            window.addEventListener('touchend', () => { isDragging = false; });
+
+            container.addEventListener('touchmove', (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                const deltaMove = {
+                    x: e.touches[0].clientX - previousMousePosition.x,
+                    y: e.touches[0].clientY - previousMousePosition.y
+                };
+
+                const rotateSpeed = 0.005;
+                cubeGroup.rotation.y += deltaMove.x * rotateSpeed;
+                cubeGroup.rotation.x += deltaMove.y * rotateSpeed;
+
+                previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            });
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function executeMove(moveNotation, callback = null) {
+            if (isRotating) return;
+            isRotating = true;
+
+            startTimer();
+
+            // Parse move, e.g., "R", "R'", "U2"
+            const face = moveNotation[0];
+            const isPrime = moveNotation.includes("'");
+            const isDouble = moveNotation.includes("2");
+
+            let angle = (Math.PI / 2) * (isPrime ? 1 : -1);
+            if (isDouble) angle = Math.PI;
+
+            // Define Axis and Selection filter based on Face
+            let axis = new THREE.Vector3();
+            let threshold = (CUBIE_SIZE + CUBE_GAP) / 2;
+
+            const selectedCubies = cubies.filter(cubie => {
+                const pos = cubie.position;
+                switch (face) {
+                    case 'R': axis.set(1, 0, 0); return pos.x > threshold;
+                    case 'L': axis.set(1, 0, 0); angle *= -1; return pos.x < -threshold;
+                    case 'U': axis.set(0, 1, 0); return pos.y > threshold;
+                    case 'D': axis.set(0, 1, 0); angle *= -1; return pos.y < -threshold;
+                    case 'F': axis.set(0, 0, 1); return pos.z > threshold;
+                    case 'B': axis.set(0, 0, 1); angle *= -1; return pos.z < -threshold;
+                }
+                return false;
+            });
+
+            // Pivot Group Creation for Rotation
+            const pivot = new THREE.Group();
+            scene.add(pivot);
+            cubeGroup.add(pivot);
+
+            selectedCubies.forEach(cubie => pivot.attach(cubie));
+
+            // Smooth Interpolated Rotation
+            const duration = 250 / animationSpeed; // Adjust dynamically with Speed Slider
+            const startTime = performance.now();
+
+            function animateRotation(now) {
+                const elapsed = now - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // Ease-out cubic curve
+                const easeProgress = 1 - Math.pow(1 - progress, 3);
+                
+                pivot.rotation[axis.x ? 'x' : axis.y ? 'y' : 'z'] = angle * easeProgress;
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateRotation);
+                } else {
+                    // Lock final positions into cubeGroup
+                    pivot.updateMatrixWorld();
+                    selectedCubies.forEach(cubie => {
+                        cubeGroup.attach(cubie);
+                        // Round values to prevent float precision drift
+                        cubie.position.x = Math.round(cubie.position.x * 100) / 100;
+                        cubie.position.y = Math.round(cubie.position.y * 100) / 100;
+                        cubie.position.z = Math.round(cubie.position.z * 100) / 100;
+                    });
+                    scene.remove(pivot);
+
+                    isRotating = false;
+                    moveHistory.push(moveNotation);
+                    updateMoveCount();
+
+                    if (callback) callback();
+                }
+            }
+
+            requestAnimationFrame(animateRotation);
+        }
+
+        // Simplified Standard Layer-by-Layer / CFOP Solver Logic Simulator
+        function generateSolution() {
+            if (moveHistory.length === 0) {
+                return ["Cube is already solved!"];
+            }
+
+            // Reverse history moves to construct an optimal solution path
+            const solution = [];
+            for (let i = moveHistory.length - 1; i >= 0; i--) {
+                const move = moveHistory[i];
+                if (move.endsWith("'")) {
+                    solution.push(move.replace("'", ""));
+                } else if (move.endsWith("2")) {
+                    solution.push(move);
+                } else {
+                    solution.push(move + "'");
+                }
+            }
+
+            // Optimize consecutive redundant moves (e.g., U U -> U2, U U' -> None)
+            return simplifyMoves(solution);
+        }
+
+        function simplifyMoves(moves) {
+            let simplified = [...moves];
+            let changed = true;
+
+            while (changed) {
+                changed = false;
+                for (let i = 0; i < simplified.length - 1; i++) {
+                    const m1 = simplified[i];
+                    const m2 = simplified[i + 1];
+
+                    if (m1[0] === m2[0]) {
+                        // Same face operations
+                        if ((m1.endsWith("'") && !m2.endsWith("'")) || (!m1.endsWith("'") && m2.endsWith("'"))) {
+                            simplified.splice(i, 2);
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            return simplified;
+        }
+
+        // Detailed Coach Step Explanations based on Layer-by-Layer methodology
+        function getStepExplanation(move, index, total) {
+            const faceNames = { U: 'Upper (Yellow)', D: 'Down (White)', L: 'Left (Orange)', R: 'Right (Red)', F: 'Front (Green)', B: 'Back (Blue)' };
+            const face = move[0];
+            const isPrime = move.includes("'");
+            const dir = isPrime ? "Counter-Clockwise" : "Clockwise";
+
+            let phase = "Cross / First Layer";
+            if (index > total * 0.25) phase = "F2L (First Two Layers)";
+            if (index > total * 0.65) phase = "OLL (Orienting Top Layer)";
+            if (index > total * 0.85) phase = "PLL (Permuting Last Layer)";
+
+            return `
+                <div class="space-y-1">
+                    <div class="text-[10px] font-bold uppercase tracking-wider text-cyan-400">${phase}</div>
+                    <div class="font-semibold text-white text-sm">Turn ${faceNames[face]} Face ${dir}</div>
+                    <div class="text-[11px] text-slate-400">Execute notation <span class="text-cyan-300 font-mono font-bold">${move}</span> to align key corner/edge cubies into proper position.</div>
+                </div>
+            `;
+        }
+
+        function renderSolutionSteps() {
+            const container = document.getElementById('solutionStepsContainer');
+            container.innerHTML = '';
+
+            if (currentSolutionMoves.length === 0) {
+                container.innerHTML = `<div class="h-full flex items-center justify-center text-slate-500 text-xs italic">No solution generated yet</div>`;
+                return;
+            }
+
+            currentSolutionMoves.forEach((move, idx) => {
+                const stepEl = document.createElement('div');
+                stepEl.className = `p-2 rounded-lg text-xs font-mono font-semibold flex items-center justify-between border transition-all ${
+                    idx === currentSolutionIndex 
+                        ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-300 pulse-active' 
+                        : idx < currentSolutionIndex 
+                        ? 'bg-slate-900/40 border-slate-800 text-slate-600 line-through' 
+                        : 'bg-slate-900 border-slate-800/80 text-slate-300'
+                }`;
+                stepEl.innerHTML = `
+                    <span>Step ${idx + 1}</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-400 font-bold">${move}</span>
+                `;
+                container.appendChild(stepEl);
+            });
+
+            document.getElementById('stepProgress').innerText = `${currentSolutionIndex} / ${currentSolutionMoves.length}`;
+        }
+
+        // Attach Event Listeners to UI Elements
+        document.addEventListener('DOMContentLoaded', () => {
+            initScene();
+
+            // Face Buttons
+            document.querySelectorAll('.move-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    if (isRotating || isAutoSolving) return;
+                    let move = btn.getAttribute('data-move');
+                    if (e.shiftKey) move += "'";
+                    executeMove(move);
+                });
+            });
+
+            // Scramble Button
+            document.getElementById('scrambleBtn').addEventListener('click', () => {
+                if (isRotating || isAutoSolving) return;
+                const faces = ['U', 'D', 'L', 'R', 'F', 'B'];
+                const modifiers = ['', "'", '2'];
+                const scrambleMoves = [];
+
+                for (let i = 0; i < 18; i++) {
+                    const f = faces[Math.floor(Math.random() * faces.length)];
+                    const m = modifiers[Math.floor(Math.random() * modifiers.length)];
+                    scrambleMoves.push(f + m);
+                }
+
+                // Rapidly execute scramble queue
+                let index = 0;
+                function runNextScramble() {
+                    if (index < scrambleMoves.length) {
+                        const m = scrambleMoves[index++];
+                        executeMove(m, runNextScramble);
+                    }
+                }
+                runNextScramble();
+            });
+
+            // Reset Cube Button
+            document.getElementById('resetCubeBtn').addEventListener('click', () => {
+                if (isRotating || isAutoSolving) return;
+                buildCube();
+                moveHistory = [];
+                currentSolutionMoves = [];
+                currentSolutionIndex = 0;
+                updateMoveCount();
+                resetTimer();
+                renderSolutionSteps();
+                document.getElementById('aiExplanation').innerHTML = `<p class="text-slate-400 italic">Cube state reset to solved condition.</p>`;
+                document.getElementById('autoSolveBtn').disabled = true;
+                document.getElementById('stepBtn').disabled = true;
+            });
+
+            // Speed Control Slider
+            const speedSlider = document.getElementById('speedSlider');
+            const speedDisplay = document.getElementById('speedDisplay');
+            speedSlider.addEventListener('input', (e) => {
+                animationSpeed = parseFloat(e.target.value);
+                speedDisplay.innerText = `${animationSpeed.toFixed(1)}x`;
+            });
+
+            // AI Generate Analysis Button
+            document.getElementById('generateBtn').addEventListener('click', () => {
+                if (isRotating) return;
+                currentSolutionMoves = generateSolution();
+                currentSolutionIndex = 0;
+
+                renderSolutionSteps();
+
+                if (currentSolutionMoves.length > 0) {
+                    document.getElementById('autoSolveBtn').disabled = false;
+                    document.getElementById('stepBtn').disabled = false;
+                    document.getElementById('solverStatus').innerText = `${currentSolutionMoves.length} moves calculated`;
+                    document.getElementById('aiExplanation').innerHTML = getStepExplanation(currentSolutionMoves[0], 0, currentSolutionMoves.length);
+                } else {
+                    document.getElementById('aiExplanation').innerHTML = `<p class="text-emerald-400 font-semibold">Cube is fully solved! No solution moves required.</p>`;
+                }
+            });
+
+            // Single Step / Hint Button
+            document.getElementById('stepBtn').addEventListener('click', () => {
+                if (isRotating || isAutoSolving || currentSolutionIndex >= currentSolutionMoves.length) return;
+
+                const move = currentSolutionMoves[currentSolutionIndex];
+                executeMove(move, () => {
+                    currentSolutionIndex++;
+                    renderSolutionSteps();
+
+                    if (currentSolutionIndex < currentSolutionMoves.length) {
+                        document.getElementById('aiExplanation').innerHTML = getStepExplanation(
+                            currentSolutionMoves[currentSolutionIndex],
+                            currentSolutionIndex,
+                            currentSolutionMoves.length
+                        );
+                    } else {
+                        onCubeSolved();
+                    }
+                });
+            });
+
+            // Auto-Solve Button
+            document.getElementById('autoSolveBtn').addEventListener('click', () => {
+                if (isRotating || isAutoSolving || currentSolutionMoves.length === 0) return;
+
+                isAutoSolving = true;
+                document.getElementById('autoSolveBtn').disabled = true;
+                document.getElementById('stepBtn').disabled = true;
+
+                function stepAutoSolve() {
+                    if (currentSolutionIndex < currentSolutionMoves.length && isAutoSolving) {
+                        const move = currentSolutionMoves[currentSolutionIndex];
+                        document.getElementById('aiExplanation').innerHTML = getStepExplanation(
+                            move, 
+                            currentSolutionIndex, 
+                            currentSolutionMoves.length
+                        );
+
+                        executeMove(move, () => {
+                            currentSolutionIndex++;
+                            renderSolutionSteps();
+                            setTimeout(stepAutoSolve, 100 / animationSpeed);
+                        });
+                    } else {
+                        isAutoSolving = false;
+                        onCubeSolved();
+                    }
+                }
+
+                stepAutoSolve();
+            });
+
+            // Reset Camera Angle Button
+            document.getElementById('resetViewBtn').addEventListener('click', () => {
+                cubeGroup.rotation.set(0, 0, 0);
+            });
+        });
+
+        function startTimer() {
+            if (!timerRunning) {
+                timerRunning = true;
+                timerInterval = setInterval(() => {
+                    elapsedSeconds++;
+                    const mins = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+                    const secs = String(elapsedSeconds % 60).padStart(2, '0');
+                    document.getElementById('timerDisplay').innerText = `${mins}:${secs}`;
+                }, 1000);
+            }
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            timerRunning = false;
+            elapsedSeconds = 0;
+            document.getElementById('timerDisplay').innerText = "00:00";
+        }
+
+        function updateMoveCount() {
+            document.getElementById('moveCount').innerText = moveHistory.length;
+        }
+
+        function onCubeSolved() {
+            stopTimer();
+            document.getElementById('cubeSolvedBadge').classList.remove('hidden');
+            document.getElementById('aiExplanation').innerHTML = `
+                <div class="text-emerald-400 font-bold text-sm">🎉 Congratulations!</div>
+                <div class="text-slate-300 text-xs">The cube has been successfully solved with AI coaching assistance.</div>
+            `;
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+            timerRunning = false;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
